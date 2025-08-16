@@ -3,3 +3,8 @@ main
 *.ini
 *.o
 *.DS_Store
+
+# directories
+.vscode/
+build/
+

@@ -10,6 +10,8 @@
 #include <iostream>
 #include <string>
 
+#include "serial/serial.h" // serial library
+
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_opengl3.h"
@@ -41,6 +43,8 @@ static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
 
 static std::string serial_buffer;
+
+// Opens the serial port 
 
 // Main code
 int main(int, char**)
@@ -161,7 +165,6 @@ int main(int, char**)
     // Our state
     bool show_main_window = true;
     bool show_demo_window = true;
-    bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     // Main loop
@@ -254,7 +257,6 @@ int main(int, char**)
                 serial_buffer = "angle:" + std::to_string(angle) + "\n"
                               + "calibration_v:" + std::to_string(calibration_v) + "\n"
                               + "calibration_h:" + std::to_string(calibration_h) + "\n";
-
                 std::cout << serial_buffer << std::endl;
             }
 
