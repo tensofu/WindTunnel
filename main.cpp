@@ -1,13 +1,8 @@
-// Dear ImGui: standalone example application for SDL3 + OpenGL
-// (SDL is a cross-platform general purpose library for handling windows, inputs, OpenGL/Vulkan/Metal graphics context creation, etc.)
-
-// Learn about Dear ImGui:
-// - FAQ                  https://dearimgui.com/faq
-// - Getting Started      https://dearimgui.com/getting-started
-// - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
-// - Introduction, links and more at the top of imgui.cpp
+// Main Wind Tunnel Program
+//   This main file was built upon ImGui's SDL3+OpenGL example to render the GUI.
 
 #include <iostream>
+#include <cstdint>
 #include <string>
 
 #include "serial/serial.h" // serial library
@@ -29,16 +24,16 @@
 
 // GLOBAL VARIABLES
 // Angle Variables
-const int BASE_ANGLE = 90;
-const int MIN_ANGLE = 80;
-const int MAX_ANGLE = 100;
+const int16_t BASE_ANGLE = 90;
+const int16_t MIN_ANGLE = 80;
+const int16_t MAX_ANGLE = 100;
 
 // Calibration Variables
 const int BASE_CALIBRATION_V = 400;
 const int BASE_CALIBRATION_H = 400;
 
 // Static Variables
-static int angle = BASE_ANGLE;
+static int16_t angle = BASE_ANGLE;
 static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
 
@@ -248,7 +243,7 @@ int main(int, char**)
             ImGui::Begin ("Variables");
 
             // Variable Sliders
-            ImGui::SliderInt("Angle of Attack", &angle, MIN_ANGLE, MAX_ANGLE);
+            ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle, &MIN_ANGLE, &MAX_ANGLE);
             ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f");
             ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f");
 
