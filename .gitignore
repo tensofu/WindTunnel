@@ -1,0 +1,5 @@
+main
+*.exe
+*.ini
+*.o
+*.DS_Store
