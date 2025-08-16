@@ -7,6 +7,9 @@
 // - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
 // - Introduction, links and more at the top of imgui.cpp
 
+#include <iostream>
+#include <string>
+
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_opengl3.h"
@@ -31,6 +34,13 @@ const int MAX_ANGLE = 100;
 // Calibration Variables
 const int BASE_CALIBRATION_V = 400;
 const int BASE_CALIBRATION_H = 400;
+
+// Static Variables
+static int angle = BASE_ANGLE;
+static float calibration_v = BASE_CALIBRATION_V;
+static float calibration_h = BASE_CALIBRATION_H;
+
+static std::string serial_buffer;
 
 // Main code
 int main(int, char**)
@@ -234,9 +244,22 @@ int main(int, char**)
         if (show_main_window) {
             ImGui::Begin ("Variables");
 
-            static int angle = BASE_ANGLE;
-            ImGui::Button("Start");
+            // Variable Sliders
             ImGui::SliderInt("Angle of Attack", &angle, MIN_ANGLE, MAX_ANGLE);
+            ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f");
+            ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f");
+
+            // Sends the variables to be updated to the Arduino program via the Serial port.
+            if (ImGui::Button("Send to Serial")) {
+                serial_buffer = "angle:" + std::to_string(angle) + "\n"
+                              + "calibration_v:" + std::to_string(calibration_v) + "\n"
+                              + "calibration_h:" + std::to_string(calibration_h) + "\n";
+
+                std::cout << serial_buffer << std::endl;
+            }
+
+            // Saves all variables to a .txt config file
+            ImGui::Button("Save");
 
             ImGui::End();
         }
