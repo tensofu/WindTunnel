@@ -249,9 +249,9 @@ int main(int, char**)
 
             // Sends the variables to be updated to the Arduino program via the Serial port.
             if (ImGui::Button("Send to Serial")) {
-                serial_buffer = "angle:" + std::to_string(angle) + "\n"
-                              + "calibration_v:" + std::to_string(calibration_v) + "\n"
-                              + "calibration_h:" + std::to_string(calibration_h) + "\n";
+                serial_buffer = "angle:" + std::to_string(angle)
+                              + "calibration_v:" + std::to_string(calibration_v)
+                              + "calibration_h:" + std::to_string(calibration_h);
                 std::cout << serial_buffer << std::endl;
             }
 
