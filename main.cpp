@@ -44,12 +44,14 @@ static int16_t angle_rel = 0;
 static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
 static bool rt_angle = true;
-static bool rt_graph = true;
+static bool rt_graph = false;
 static bool rt_calibration = false;
 static bool serial_open = false;
 static std::string serial_buffer;
-
-serial::Serial serial_port;
+static std::string serial_result;
+static std::string readings;
+static float reading_v = 0.0f;
+static float reading_h = 0.0f;
 
 // utility structure for realtime plot (taken from implot_demo.cpp)
 struct ScrollingBuffer {
@@ -105,8 +107,8 @@ int main(int, char**)
     enumerate_ports(port_names);
 
     // Attempts to open the serial port 
+    serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
     try {
-        serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
         if (serial_port.isOpen()) {
             std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
             serial_open = true;
@@ -233,8 +235,13 @@ int main(int, char**)
 
     // Our state
     bool show_debug_window = true;
-    bool show_main_window = false;
     bool show_graph_window = true;
+    bool show_main_window = true;
+
+    if (!serial_open) {
+        show_main_window = false;
+    }
+    
     // bool show_another_window = false;
     bool show_demo_window = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
@@ -403,11 +410,11 @@ int main(int, char**)
         t += ImGui::GetIO().DeltaTime;
 
         angle_data.AddPoint(t, angle_rel);
-        vertical_data.AddPoint(t, 0);
-        horizontal_data.AddPoint(t, 0);
+        vertical_data.AddPoint(t, reading_v);
+        horizontal_data.AddPoint(t, reading_h);
 
-        static float history = 10.0f;
-        ImGui::SliderFloat("History",&history,1,30,"%.1f s");
+        static float history = 30.0f;
+        ImGui::SliderFloat("History", &history, 1, 30, "%.1f s");
 
         static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
 
@@ -420,11 +427,31 @@ int main(int, char**)
             ImPlot::PlotLine("Angle of Attack", &angle_data.Data[0].x, &angle_data.Data[0].y, angle_data.Data.size(),  0, angle_data.Offset, 2*sizeof(float));
             ImPlot::PlotLine("Vertical Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(),  0, vertical_data.Offset, 2*sizeof(float));
             ImPlot::PlotLine("Horizontal Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(), 0, vertical_data.Offset, 2*sizeof(float));
+
+            // Lists readings in plaintext
+            ImGui::Text("V: ");
+            ImGui::SameLine();
+            ImGui::Text("%f", reading_v);
+            ImGui::SameLine();
+            ImGui::Text("H: ");
+            ImGui::SameLine();
+            ImGui::Text("%f", reading_h);
+
+            ImGui::Checkbox("Enable readings", &rt_graph);
             ImPlot::EndPlot();
         }
 
-        
+        // Reading from serial
+        if (rt_graph) {
+            serial_buffer = "read:" + std::to_string(0);
+            serial_port.write(serial_buffer);
+            serial_port.readline(serial_result, 20, "\n");
+            std::cout << "Received: " << serial_result;
 
+            reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
+            reading_h = std::stof(serial_result.substr(serial_result.find(':') + 1, serial_result.find('\n')));
+        }
+        
         // Rendering
         ImGui::Render();
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
