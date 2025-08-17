@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 cmake_path(SET IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui")
+cmake_path(SET IMPLOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/implot")
 cmake_path(SET SERIAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/serial")
 cmake_path(SET SDL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/SDL")
 
@@ -50,11 +51,18 @@ add_executable(main
   ${IMGUI_DIR}/imgui_widgets.cpp
   ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
   ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+
+  ${IMPLOT_DIR}/implot.cpp
+  ${IMPLOT_DIR}/implot_demo.cpp
+  ${IMPLOT_DIR}/implot_items.cpp
+  ${IMPLOT_DIR}/implot_internal.h
+  ${IMPLOT_DIR}/implot.h
 )
 
 target_include_directories(main PRIVATE
   ${IMGUI_DIR}
   ${IMGUI_DIR}/backends
+  ${IMPLOT_DIR}
 )
 
 if(APPLE)

@@ -7,6 +7,7 @@
 
 #include "serial/serial.h" // serial library
 
+#include "implot.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_opengl3.h"
@@ -24,20 +25,23 @@
 
 // CONSTANT VARIABLES
 // Angle Variables
-const int16_t BASE_ANGLE = 90;
 const int16_t MIN_ANGLE = 10;
 const int16_t MAX_ANGLE = 170;
+const int16_t MIN_ANGLE_REL = -80;
+const int16_t MAX_ANGLE_REL = 80;
+const int16_t BASE_ANGLE = 90;
 
 // Calibration Variables
-const int BASE_CALIBRATION_V = 400;
-const int BASE_CALIBRATION_H = 400;
+const int BASE_CALIBRATION_V = 362;
+const int BASE_CALIBRATION_H = 26.5;
 
 // Serial Variables
-const std::string PORT = "/dev/cu.usbmodem11401";
+const std::string PORT = "/dev/cu.usbmodem11201";
 const unsigned long BAUD = 115200;
 
 // STATIC VARIABLES
 static int16_t angle = BASE_ANGLE;
+static int16_t angle_rel = 0;
 static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
 static bool rt_angle = true;
@@ -45,6 +49,31 @@ static bool rt_graph = true;
 static bool rt_calibration = false;
 static std::string serial_buffer;
 
+// utility structure for realtime plot (taken from implot_demo.cpp)
+struct ScrollingBuffer {
+    int MaxSize;
+    int Offset;
+    ImVector<ImVec2> Data;
+    ScrollingBuffer(int max_size = 2000) {
+        MaxSize = max_size;
+        Offset  = 0;
+        Data.reserve(MaxSize);
+    }
+    void AddPoint(float x, float y) {
+        if (Data.size() < MaxSize)
+            Data.push_back(ImVec2(x,y));
+        else {
+            Data[Offset] = ImVec2(x,y);
+            Offset =  (Offset + 1) % MaxSize;
+        }
+    }
+    void Erase() {
+        if (Data.size() > 0) {
+            Data.shrink(0);
+            Offset  = 0;
+        }
+    }
+};
 
 // FUNCTIONS
 // Enumerate available ports
@@ -72,7 +101,8 @@ int main(int, char**)
     if (serial.isOpen()) {
         std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
     } else {
-        std::cout << "Serial port did not open." << std::endl;
+        std::cout << "Serial port did not open. Here is a list of ports that you could choose from:" << std::endl;
+        enumerate_ports();
     }
 
     // Setup SDL
@@ -120,7 +150,7 @@ int main(int, char**)
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     SDL_WindowFlags window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    SDL_Window* window = SDL_CreateWindow("Dear ImGui SDL3+OpenGL3 example", (int)(1280 * main_scale), (int)(720 * main_scale), window_flags);
+    SDL_Window* window = SDL_CreateWindow("Wind Tunnel Dashboard", (int)(1280 * main_scale), (int)(720 * main_scale), window_flags);
     if (window == nullptr)
     {
         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
@@ -141,6 +171,7 @@ int main(int, char**)
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -279,8 +310,8 @@ int main(int, char**)
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
             // Variable Sliders
-            if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle, &MIN_ANGLE, &MAX_ANGLE) && rt_angle) {
-                serial_buffer = "angle:" + std::to_string(angle);
+            if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle_rel, &MIN_ANGLE_REL, &MAX_ANGLE_REL) && rt_angle) {
+                serial_buffer = "angle:" + std::to_string(BASE_ANGLE + angle_rel);
                 serial.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
@@ -321,13 +352,34 @@ int main(int, char**)
             ImGui::End();
         }
 
+
+        // IMPLOT GRAPH
+        static ScrollingBuffer angle_data, vertical_data, horizontal_data;
+        static float t = 0;
+        t += ImGui::GetIO().DeltaTime;
+
+        angle_data.AddPoint(t, angle_rel);
+        vertical_data.AddPoint(t, 0);
+        horizontal_data.AddPoint(t, 0);
+
+        static float history = 10.0f;
+        ImGui::SliderFloat("History",&history,1,30,"%.1f s");
+
+        static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
+
         if (show_graph_window) {
-            ImGui::Begin("Graph");
-
-            ImGui::Checkbox("Enable readings", &rt_graph);
-
-            ImGui::End();
+            ImPlot::BeginPlot("Load Cell Forces", ImVec2(-1, 150));
+            ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+            ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+            ImPlot::SetupAxisLimits(ImAxis_Y1, -100, 100);
+            ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
+            ImPlot::PlotLine("Angle of Attack", &angle_data.Data[0].x, &angle_data.Data[0].y, angle_data.Data.size(),  0, angle_data.Offset, 2*sizeof(float));
+            ImPlot::PlotLine("Vertical Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(),  0, vertical_data.Offset, 2*sizeof(float));
+            ImPlot::PlotLine("Horizontal Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(), 0, vertical_data.Offset, 2*sizeof(float));
+            ImPlot::EndPlot();
         }
+
+        
 
         // Rendering
         ImGui::Render();
@@ -358,6 +410,7 @@ int main(int, char**)
     // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
+    ImPlot::DestroyContext();
     ImGui::DestroyContext();
 
     SDL_GL_DestroyContext(gl_context);
