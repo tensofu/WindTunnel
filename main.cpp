@@ -25,31 +25,36 @@
 // CONSTANT VARIABLES
 // Angle Variables
 const int16_t BASE_ANGLE = 90;
-const int16_t MIN_ANGLE = 80;
-const int16_t MAX_ANGLE = 100;
+const int16_t MIN_ANGLE = 10;
+const int16_t MAX_ANGLE = 170;
 
 // Calibration Variables
 const int BASE_CALIBRATION_V = 400;
 const int BASE_CALIBRATION_H = 400;
 
 // Serial Variables
-const std::string PORT = "";
-const unsigned long BAUD = 9600;
+const std::string PORT = "/dev/cu.usbmodem11401";
+const unsigned long BAUD = 115200;
 
 // STATIC VARIABLES
 static int16_t angle = BASE_ANGLE;
 static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
+static bool rt_angle = true;
+static bool rt_graph = true;
+static bool rt_calibration = false;
 static std::string serial_buffer;
+
 
 // FUNCTIONS
 // Enumerate available ports
 void enumerate_ports() {
+    std::cout << "Listing all available devices" << std::endl;
+
     int count = 0;
     std::vector<serial::PortInfo> devices_found = serial::list_ports();
     for (auto device : devices_found) {
         ++count;
-        
         std::cout << "Device #" << std::to_string(count) << std::endl;
         std::cout << "Device Port: " << device.port.c_str() << std::endl;
         std::cout << "Device Description: " << device.description.c_str() << std::endl;
@@ -69,8 +74,6 @@ int main(int, char**)
     } else {
         std::cout << "Serial port did not open." << std::endl;
     }
-
-    enumerate_ports();
 
     // Setup SDL
     // [If using SDL_MAIN_USE_CALLBACKS: all code below until the main loop starts would likely be your SDL_AppInit() function]
@@ -187,6 +190,8 @@ int main(int, char**)
 
     // Our state
     bool show_main_window = true;
+    bool show_graph_window = true;
+    // bool show_another_window = false;
     bool show_demo_window = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -269,22 +274,57 @@ int main(int, char**)
         // Wind Tunnel Window
         if (show_main_window) {
             ImGui::Begin ("Variables");
+            
+            // Displays the framerate
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
             // Variable Sliders
-            ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle, &MIN_ANGLE, &MAX_ANGLE);
-            ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f");
-            ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f");
-
-            // Sends the variables to be updated to the Arduino program via the Serial port.
-            if (ImGui::Button("Send to Serial")) {
-                serial_buffer = "angle:" + std::to_string(angle)
-                              + "calibration_v:" + std::to_string(calibration_v)
-                              + "calibration_h:" + std::to_string(calibration_h);
-                std::cout << serial_buffer << std::endl;
+            if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle, &MIN_ANGLE, &MAX_ANGLE) && rt_angle) {
+                serial_buffer = "angle:" + std::to_string(angle);
+                serial.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
+            if (ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f") && rt_calibration) {
+                serial_buffer = "calibration_v:" + std::to_string(calibration_v);
+                serial.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
+            }
+
+            if (ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f") && rt_calibration) {
+                serial_buffer = "calibration_v:" + std::to_string(calibration_h);
+                serial.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
+            }
+
+            // Sends the variables to be updated to the Arduino program via the Serial port.
+            if (ImGui::Button("Update all to Serial")) {
+                serial_buffer = "angle:" + std::to_string(angle) 
+                              + "calibration_v:" + std::to_string(calibration_v)
+                              + "calibration_h:" + std::to_string(calibration_h);
+                serial.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
+            }
+
+            if (ImGui::Button("List Available Devices")) {
+                enumerate_ports();
+            }
+
+            ImGui::Checkbox("Update angle in real time", &rt_angle);
+            ImGui::Checkbox("Update calibration in real time", &rt_calibration);
+
             // Saves all variables to a .txt config file
-            ImGui::Button("Save");
+            if (ImGui::Button("Save")) {
+                // TODO: save a config or something
+            }
+
+            ImGui::End();
+        }
+
+        if (show_graph_window) {
+            ImGui::Begin("Graph");
+
+            ImGui::Checkbox("Enable readings", &rt_graph);
 
             ImGui::End();
         }
