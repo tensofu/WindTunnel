@@ -17,6 +17,29 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>")
 
 add_subdirectory(vendor/SDL EXCLUDE_FROM_ALL)
 
+## Sources for Serial
+set(serial_SRCS
+    ${SERIAL_DIR}/src/serial.cc
+)
+if(APPLE)
+    # If OSX
+    list(APPEND serial_SRCS ${SERIAL_DIR}/src/impl/unix.cc)
+    list(APPEND serial_SRCS ${SERIAL_DIR}/src/impl/list_ports/list_ports_osx.cc)
+elseif(UNIX)
+    # If unix
+    list(APPEND serial_SRCS ${SERIAL_DIR}/src/impl/unix.cc)
+    list(APPEND serial_SRCS ${SERIAL_DIR}/src/impl/list_ports/list_ports_linux.cc)
+else()
+    # If windows
+    list(APPEND serial_SRCS ${SERIAL_DIR}/src/impl/win.cc)
+    list(APPEND serial_SRCS ${SERIAL_DIR}/src/impl/list_ports/list_ports_win.cc)
+endif()
+
+## Add serial library
+add_library(serial_lib STATIC ${serial_SRCS}) # Create a new target for the serial library
+target_include_directories(serial_lib PUBLIC ${SERIAL_DIR}/include)
+target_link_libraries(serial_lib PUBLIC ${SERIAL_LIBS})
+
 add_executable(main
   main.cpp
 
@@ -32,7 +55,6 @@ add_executable(main
 target_include_directories(main PRIVATE
   ${IMGUI_DIR}
   ${IMGUI_DIR}/backends
-  ${SERIAL_DIR}/include
 )
 
 if(APPLE)
@@ -44,7 +66,15 @@ endif()
 
 target_link_libraries(main PRIVATE 
   SDL3::SDL3
+  serial_lib
 )
+
+if(APPLE)
+    # Ensure IOKit and Foundation are linked to the executable
+    find_library(IOKIT_LIB IOKit REQUIRED)
+    find_library(FOUNDATION_LIB Foundation REQUIRED)
+    target_link_libraries(main PRIVATE ${IOKIT_LIB} ${FOUNDATION_LIB})
+endif()
 
 target_compile_options(main PRIVATE
   -g  
