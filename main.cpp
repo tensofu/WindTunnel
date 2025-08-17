@@ -22,7 +22,7 @@
 #include "../libs/emscripten/emscripten_mainloop_stub.h"
 #endif
 
-// GLOBAL VARIABLES
+// CONSTANT VARIABLES
 // Angle Variables
 const int16_t BASE_ANGLE = 90;
 const int16_t MIN_ANGLE = 80;
@@ -32,18 +32,46 @@ const int16_t MAX_ANGLE = 100;
 const int BASE_CALIBRATION_V = 400;
 const int BASE_CALIBRATION_H = 400;
 
-// Static Variables
+// Serial Variables
+const std::string PORT = "";
+const unsigned long BAUD = 9600;
+
+// STATIC VARIABLES
 static int16_t angle = BASE_ANGLE;
 static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
-
 static std::string serial_buffer;
 
-// Opens the serial port 
+// FUNCTIONS
+// Enumerate available ports
+void enumerate_ports() {
+    int count = 0;
+    std::vector<serial::PortInfo> devices_found = serial::list_ports();
+    for (auto device : devices_found) {
+        ++count;
+        
+        std::cout << "Device #" << std::to_string(count) << std::endl;
+        std::cout << "Device Port: " << device.port.c_str() << std::endl;
+        std::cout << "Device Description: " << device.description.c_str() << std::endl;
+        std::cout << "Device Hardware ID: " << device.hardware_id.c_str() << std::endl;
+        std::cout << std::endl;
+    } 
+}
 
 // Main code
 int main(int, char**)
 {
+    // Opens the serial port 
+    serial::Serial serial(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
+
+    if (serial.isOpen()) {
+        std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
+    } else {
+        std::cout << "Serial port did not open." << std::endl;
+    }
+
+    enumerate_ports();
+
     // Setup SDL
     // [If using SDL_MAIN_USE_CALLBACKS: all code below until the main loop starts would likely be your SDL_AppInit() function]
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
