@@ -32,8 +32,8 @@ const int16_t MAX_ANGLE_REL = 80;
 const int16_t BASE_ANGLE = 90;
 
 // Calibration Variables
-const int BASE_CALIBRATION_V = 362;
-const int BASE_CALIBRATION_H = 26.5;
+const float BASE_CALIBRATION_V = 362.0f;
+const float BASE_CALIBRATION_H = 26.5f;
 
 // Serial Variables
 const std::string PORT = "/dev/cu.usbmodem11201";
