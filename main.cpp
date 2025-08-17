@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstdint>
 #include <string>
+#include <stdexcept>
 
 #include "serial/serial.h" // serial library
 
@@ -45,7 +46,10 @@ static float calibration_h = BASE_CALIBRATION_H;
 static bool rt_angle = true;
 static bool rt_graph = true;
 static bool rt_calibration = false;
+static bool serial_open = false;
 static std::string serial_buffer;
+
+serial::Serial serial_port;
 
 // utility structure for realtime plot (taken from implot_demo.cpp)
 struct ScrollingBuffer {
@@ -73,29 +77,44 @@ struct ScrollingBuffer {
     }
 };
 
-std::vector<serial::PortInfo> devices_found =  serial::list_ports();
+std::vector<std::string> gather_ports () {
+    std::vector<serial::PortInfo> ports = serial::list_ports();
+    std::vector<std::string> result;
 
-void enumerate_ports(std::vector<serial::PortInfo> device_list) {
+    for (const auto& port : ports) {
+        result.push_back(port.port);
+    }
+
+    return result;
+}
+
+void enumerate_ports(std::vector<std::string> devices) {
     std::cout << "Listing all available devices: " << std::endl;
-    for (const auto& device : device_list) {
-        std::cout << device.port.c_str() << std::endl;
+    for (const auto& device : devices) {
+        std::cout << device << std::endl;
     }
 }
+
+std::vector<std::string> port_names = gather_ports();
 
 // Main code
 int main(int, char**)
 {
     // Introduction from console
     std::cout << "Starting Wind Tunnel Program V2..." << std::endl;
-    enumerate_ports(devices_found);
+    enumerate_ports(port_names);
 
-    // Opens the serial port 
-    serial::Serial serial(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
-
-    if (serial.isOpen()) {
-        std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
-    } else {
-        std::cout << "Serial port did not open. Here is a list of ports that you could choose from:" << std::endl;
+    // Attempts to open the serial port 
+    try {
+        serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
+        if (serial_port.isOpen()) {
+            std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
+            serial_open = true;
+        } else {
+            std::cout << "Serial port did not open. Here is a list of ports that you could choose from:" << std::endl;
+        }
+    } catch (const serial::IOException& e) {
+        std::cerr << "Error: " << e.what()  << std::endl;
     }
 
     // Setup SDL
@@ -213,7 +232,8 @@ int main(int, char**)
     //IM_ASSERT(font != nullptr);
 
     // Our state
-    bool show_main_window = true;
+    bool show_debug_window = true;
+    bool show_main_window = false;
     bool show_graph_window = true;
     // bool show_another_window = false;
     bool show_demo_window = true;
@@ -295,6 +315,41 @@ int main(int, char**)
         //     ImGui::End();
         // }
 
+        // Debugging Window (in case something goes wrong during initialization)
+        if (show_debug_window) {
+            ImGui::Begin("Debug");
+            ImGui::Text("Wind Tunnel Debugging Menu");
+
+            // Device Port Popup
+            static int selected_device = -1;
+            if (ImGui::Button("List Available Ports"))
+                ImGui::OpenPopup("start_devices_popup");
+            ImGui::SameLine();
+            ImGui::TextUnformatted(selected_device == -1 ? "<None>" : port_names[selected_device].c_str());
+            if (ImGui::BeginPopup("start_devices_popup")) {
+                ImGui::SeparatorText("Device Ports");
+                for (size_t i = 0; i < port_names.size(); i++) {
+                    if (ImGui::Selectable(port_names[i].c_str())) {
+                        selected_device = i;
+                        PORT = port_names[selected_device].c_str();
+                        std::cout << selected_device << " " << PORT << std::endl;
+                    }
+                }
+                ImGui::EndPopup();
+            }
+
+            if (!serial_open) {
+                ImGui::TextWrapped("If you are seeing this message, the serial port did not open correctly. "
+                                   "Please see if the desired port is available, or select the correct port using the dropdown above.");
+            }
+
+            if (ImGui::Button("Start")) {
+
+            }
+
+            ImGui::End();
+        }
+
         // Wind Tunnel Window
         if (show_main_window) {
             ImGui::Begin ("Variables");
@@ -305,19 +360,19 @@ int main(int, char**)
             // Variable Sliders
             if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle_rel, &MIN_ANGLE, &MAX_ANGLE) && rt_angle) {
                 serial_buffer = "angle:" + std::to_string(BASE_ANGLE + angle_rel);
-                serial.write(serial_buffer);
+                serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
             if (ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f") && rt_calibration) {
                 serial_buffer = "calibration_v:" + std::to_string(calibration_v);
-                serial.write(serial_buffer);
+                serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
             if (ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f") && rt_calibration) {
                 serial_buffer = "calibration_v:" + std::to_string(calibration_h);
-                serial.write(serial_buffer);
+                serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
@@ -326,27 +381,8 @@ int main(int, char**)
                 serial_buffer = "angle:" + std::to_string(angle) 
                               + "calibration_v:" + std::to_string(calibration_v)
                               + "calibration_h:" + std::to_string(calibration_h);
-                serial.write(serial_buffer);
+                serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
-            }
-            ImGui::SameLine();
-
-            // Device Port Popup
-            int selected_device = -1;
-            if (ImGui::Button("List Available Ports"))
-                ImGui::OpenPopup("my_devices_popup");
-            ImGui::SameLine();
-            ImGui::TextUnformatted(selected_device == -1 ? PORT.c_str() : devices_found[selected_device].port.c_str());
-            if (ImGui::BeginPopup("my_devices_popup"))
-            {
-                ImGui::SeparatorText("Device Ports");
-                for (size_t i = 0; i < devices_found.size(); i++) {
-                    if (ImGui::Selectable(devices_found[i].port.c_str())) {
-                        selected_device = i;
-                    }
-                }
-                    
-                ImGui::EndPopup();
             }
 
             ImGui::Checkbox("Update angle in real time", &rt_angle);
