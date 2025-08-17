@@ -25,10 +25,8 @@
 
 // CONSTANT VARIABLES
 // Angle Variables
-const int16_t MIN_ANGLE = 10;
-const int16_t MAX_ANGLE = 170;
-const int16_t MIN_ANGLE_REL = -80;
-const int16_t MAX_ANGLE_REL = 80;
+const int16_t MIN_ANGLE = -80;
+const int16_t MAX_ANGLE = 80;
 const int16_t BASE_ANGLE = 90;
 
 // Calibration Variables
@@ -36,10 +34,10 @@ const float BASE_CALIBRATION_V = 362.0f;
 const float BASE_CALIBRATION_H = 26.5f;
 
 // Serial Variables
-const std::string PORT = "/dev/cu.usbmodem11201";
 const unsigned long BAUD = 115200;
+static std::string PORT = "/dev/cu.usbmodem11201"; // port for arduino
 
-// STATIC VARIABLES
+// OTHER STATIC VARIABLES
 static int16_t angle = BASE_ANGLE;
 static int16_t angle_rel = 0;
 static float calibration_v = BASE_CALIBRATION_V;
@@ -75,26 +73,22 @@ struct ScrollingBuffer {
     }
 };
 
-// FUNCTIONS
-// Enumerate available ports
-void enumerate_ports() {
-    std::cout << "Listing all available devices" << std::endl;
+std::vector<serial::PortInfo> devices_found =  serial::list_ports();
 
-    int count = 0;
-    std::vector<serial::PortInfo> devices_found = serial::list_ports();
-    for (auto device : devices_found) {
-        ++count;
-        std::cout << "Device #" << std::to_string(count) << std::endl;
-        std::cout << "Device Port: " << device.port.c_str() << std::endl;
-        std::cout << "Device Description: " << device.description.c_str() << std::endl;
-        std::cout << "Device Hardware ID: " << device.hardware_id.c_str() << std::endl;
-        std::cout << std::endl;
-    } 
+void enumerate_ports(std::vector<serial::PortInfo> device_list) {
+    std::cout << "Listing all available devices: " << std::endl;
+    for (const auto& device : device_list) {
+        std::cout << device.port.c_str() << std::endl;
+    }
 }
 
 // Main code
 int main(int, char**)
 {
+    // Introduction from console
+    std::cout << "Starting Wind Tunnel Program V2..." << std::endl;
+    enumerate_ports(devices_found);
+
     // Opens the serial port 
     serial::Serial serial(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
 
@@ -102,7 +96,6 @@ int main(int, char**)
         std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
     } else {
         std::cout << "Serial port did not open. Here is a list of ports that you could choose from:" << std::endl;
-        enumerate_ports();
     }
 
     // Setup SDL
@@ -310,7 +303,7 @@ int main(int, char**)
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
 
             // Variable Sliders
-            if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle_rel, &MIN_ANGLE_REL, &MAX_ANGLE_REL) && rt_angle) {
+            if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle_rel, &MIN_ANGLE, &MAX_ANGLE) && rt_angle) {
                 serial_buffer = "angle:" + std::to_string(BASE_ANGLE + angle_rel);
                 serial.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
@@ -329,16 +322,31 @@ int main(int, char**)
             }
 
             // Sends the variables to be updated to the Arduino program via the Serial port.
-            if (ImGui::Button("Update all to Serial")) {
+            if (ImGui::Button("Update to Serial")) {
                 serial_buffer = "angle:" + std::to_string(angle) 
                               + "calibration_v:" + std::to_string(calibration_v)
                               + "calibration_h:" + std::to_string(calibration_h);
                 serial.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
+            ImGui::SameLine();
 
-            if (ImGui::Button("List Available Devices")) {
-                enumerate_ports();
+            // Device Port Popup
+            int selected_device = -1;
+            if (ImGui::Button("List Available Ports"))
+                ImGui::OpenPopup("my_devices_popup");
+            ImGui::SameLine();
+            ImGui::TextUnformatted(selected_device == -1 ? PORT.c_str() : devices_found[selected_device].port.c_str());
+            if (ImGui::BeginPopup("my_devices_popup"))
+            {
+                ImGui::SeparatorText("Device Ports");
+                for (size_t i = 0; i < devices_found.size(); i++) {
+                    if (ImGui::Selectable(devices_found[i].port.c_str())) {
+                        selected_device = i;
+                    }
+                }
+                    
+                ImGui::EndPopup();
             }
 
             ImGui::Checkbox("Update angle in real time", &rt_angle);
