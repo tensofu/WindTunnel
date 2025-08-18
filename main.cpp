@@ -49,7 +49,6 @@ static bool rt_angle = true;
 static bool rt_graph = false;
 static bool rt_calibration = true;
 static bool serial_open = false;
-static bool flag_clean_futures = true;
 static std::string serial_buffer;
 static std::string serial_result;
 static std::string readings;
@@ -59,8 +58,7 @@ static serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(100
 static std::mutex serial_buffer_mutex;
 static std::mutex serial_result_mutex;
 static float readings_per_second = 5.0f; 
-static double time_since_last_reading = 0.0f;
-static std::vector<std::future<void>> futures;
+static std::vector<std::future<void>> reading_queue;
 
 // utility structure for realtime plot (taken from implot_demo.cpp)
 struct ScrollingBuffer {
@@ -105,19 +103,6 @@ void enumerate_ports(std::vector<std::string> devices) {
     std::cout << "Listing all available devices: " << std::endl;
     for (const auto& device : devices) {
         std::cout << device << std::endl;
-    }
-}
-
-void clean_futures (std::vector<std::future<void>> &futures) {
-    while (!futures.empty()) {
-        for (auto it = futures.begin(); it != futures.end(); /* no increment */) {
-            auto status = it->wait_for(std::chrono::seconds(0));
-            if (status == std::future_status::ready) {
-                it = futures.erase(it);
-            } else {
-                ++it;
-            }
-        }
     }
 }
 
@@ -369,14 +354,9 @@ int main(int, char**)
                 // TODO: sets the serial port and baud rate, then tries to reopen the port.
             }
 
-            if (flag_clean_futures) {
-                clean_futures(futures);
-            }
-
             ImGui::BulletText("Remaining async operations: ");
             ImGui::SameLine();
-            ImGui::Text("%d", static_cast<int>(futures.size()));  
-            ImGui::Checkbox("Clean futures", &flag_clean_futures);
+            ImGui::Text("%d", static_cast<int>(reading_queue.size()));  
 
             ImGui::End();
         }
@@ -428,20 +408,32 @@ int main(int, char**)
         }
 
         // IMPLOT GRAPH
+        // Initializes the plot data structs
         static ScrollingBuffer angle_data, vertical_data, horizontal_data;
         static float t = 0;
+        static float dt = 0;
         t += ImGui::GetIO().DeltaTime;
 
-        // Limits readings depending on the rate
-        if (rt_graph) {
-            if (time_since_last_reading > (1.0f / readings_per_second)) {
-                futures.push_back(std::async(std::launch::async, read_from_serial));
-                time_since_last_reading = 0.0f;
-            } else {
-                time_since_last_reading += ImGui::GetIO().DeltaTime;
+        // Handles asynchronous operations for read_from_serial():
+        //   If the vector contains a std::future object, then checks until that object is ready. If so, then delete it.
+        //   If the vector is empty AND we are looking for readings, then push a new std::future object into the vector.
+        //   This ensures that we only request data once the previous request is finished.
+        if (!reading_queue.empty()) {
+            auto status = reading_queue.front().wait_for(std::chrono::seconds(0));
+            if (status == std::future_status::ready) {
+                reading_queue.front().get();
+                reading_queue.erase(reading_queue.begin());
+                readings_per_second = 1.0f / (t - dt);
             }
+        }
+        if (rt_graph) {
+            if (reading_queue.empty()) {
+                reading_queue.push_back(std::async(std::launch::async, read_from_serial));
+                dt = t;
+            } 
         } 
 
+        // Adds points to the data structs
         angle_data.AddPoint(t, angle_rel);
         vertical_data.AddPoint(t, reading_v);
         horizontal_data.AddPoint(t, reading_h);
@@ -462,16 +454,19 @@ int main(int, char**)
             ImPlot::PlotLine("Horizontal Force", &horizontal_data.Data[0].x, &horizontal_data.Data[0].y, horizontal_data.Data.size(), 0, horizontal_data.Offset, 2*sizeof(float));
             ImPlot::EndPlot();
 
-            // RPS slider
-            ImGui::SliderFloat("Readings per Second", &readings_per_second, 1.0f, 10.0f);
+            // RPS Metric
+            ImGui::Text("%f readings per second", readings_per_second);
 
             // Lists readings in plaintext
             ImGui::Text("V: %f", reading_v);
             ImGui::SameLine();
             ImGui::Text("H: %f", reading_h);
         
-
             ImGui::Checkbox("Enable readings", &rt_graph);
+            if (!rt_graph) {
+                ImGui::SameLine();
+                ImGui::Text("(paused)");
+            }
             if (ImGui::Button("Tare Scale")) {
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "tare:";
@@ -519,12 +514,6 @@ int main(int, char**)
 #endif
 
     // Cleanup
-
-    // cleans futures
-    for (auto& future : futures) {
-        future.get();
-    }
-
     // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
