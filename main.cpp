@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include <chrono>
+#include <future>
 
 #include "serial/serial.h" // serial library
 
@@ -48,11 +49,18 @@ static bool rt_angle = true;
 static bool rt_graph = false;
 static bool rt_calibration = true;
 static bool serial_open = false;
+static bool flag_clean_futures = true;
 static std::string serial_buffer;
 static std::string serial_result;
 static std::string readings;
 static float reading_v = 0.0f;
 static float reading_h = 0.0f;
+static serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
+static std::mutex serial_buffer_mutex;
+static std::mutex serial_result_mutex;
+static float readings_per_second = 5.0f; 
+static double time_since_last_reading = 0.0f;
+static std::vector<std::future<void>> futures;
 
 // utility structure for realtime plot (taken from implot_demo.cpp)
 struct ScrollingBuffer {
@@ -80,14 +88,16 @@ struct ScrollingBuffer {
     }
 };
 
+void update_angle() {
+    angle = BASE_ANGLE + angle_rel;
+}
+
 std::vector<std::string> gather_ports () {
     std::vector<serial::PortInfo> ports = serial::list_ports();
     std::vector<std::string> result;
-
     for (const auto& port : ports) {
         result.push_back(port.port);
     }
-
     return result;
 }
 
@@ -98,17 +108,54 @@ void enumerate_ports(std::vector<std::string> devices) {
     }
 }
 
-std::vector<std::string> port_names = gather_ports();
+void clean_futures (std::vector<std::future<void>> &futures) {
+    while (!futures.empty()) {
+        for (auto it = futures.begin(); it != futures.end(); /* no increment */) {
+            auto status = it->wait_for(std::chrono::seconds(0));
+            if (status == std::future_status::ready) {
+                it = futures.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+void read_from_serial () {
+    {
+        std::lock_guard<std::mutex> lock(serial_buffer_mutex);
+        serial_buffer = "read:";
+        serial_port.write(serial_buffer);
+    }
+   
+    std::lock_guard<std::mutex> result_lock(serial_result_mutex);
+    serial_result = serial_port.readline(100, "\n");
+    std::cout << "Received: " << serial_result;
+
+    reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
+    reading_h = std::stof(serial_result.substr(serial_result.find(':') + 1, serial_result.find('\n')));
+}
+
+void update_to_serial () {
+    update_angle();
+    std::lock_guard<std::mutex> lock(serial_buffer_mutex);
+    serial_buffer = "angle:" + std::to_string(angle) 
+                  + "calibration_v:" + std::to_string(calibration_v)
+                  + "calibration_h:" + std::to_string(calibration_h);
+    serial_port.write(serial_buffer);
+    std::cout << "Sent: " << serial_buffer << std::endl;
+}
 
 // Main code
 int main(int, char**)
 {
+    std::vector<std::string> port_names = gather_ports();
+
     // Introduction from console
     std::cout << "Starting Wind Tunnel Program V2..." << std::endl;
     enumerate_ports(port_names);
 
     // Attempts to open the serial port 
-    serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
     try {
         if (serial_port.isOpen()) {
             std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
@@ -244,7 +291,7 @@ int main(int, char**)
     }
     
     // bool show_another_window = false;
-    bool show_demo_window = true;
+    bool show_demo_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     // Main loop
@@ -290,39 +337,6 @@ int main(int, char**)
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
 
-        // // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        // {
-        //     static float f = 0.0f;
-        //     static int counter = 0;
-
-        //     ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-        //     ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-        //     ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-        //     ImGui::Checkbox("Another Window", &show_another_window);
-
-        //     ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-        //     ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-        //     if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-        //         counter++;
-        //     ImGui::SameLine();
-        //     ImGui::Text("counter = %d", counter);
-
-        //     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-        //     ImGui::End();
-        // }
-
-        // // 3. Show another simple window.
-        // if (show_another_window)
-        // {
-        //     ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-        //     ImGui::Text("Hello from another window!");
-        //     if (ImGui::Button("Close Me"))
-        //         show_another_window = false;
-        //     ImGui::End();
-        // }
-
         // Debugging Window (in case something goes wrong during initialization)
         if (show_debug_window) {
             ImGui::Begin("Debug");
@@ -352,8 +366,17 @@ int main(int, char**)
             }
 
             if (ImGui::Button("Start")) {
-
+                // TODO: sets the serial port and baud rate, then tries to reopen the port.
             }
+
+            if (flag_clean_futures) {
+                clean_futures(futures);
+            }
+
+            ImGui::BulletText("Remaining async operations: ");
+            ImGui::SameLine();
+            ImGui::Text("%d", static_cast<int>(futures.size()));  
+            ImGui::Checkbox("Clean futures", &flag_clean_futures);
 
             ImGui::End();
         }
@@ -367,18 +390,22 @@ int main(int, char**)
 
             // Variable Sliders
             if (ImGui::SliderScalar("Angle of Attack", ImGuiDataType_S16, &angle_rel, &MIN_ANGLE, &MAX_ANGLE) && rt_angle) {
-                serial_buffer = "angle:" + std::to_string(BASE_ANGLE + angle_rel);
+                update_angle();
+                std::lock_guard<std::mutex> lock(serial_buffer_mutex);
+                serial_buffer = "angle:" + std::to_string(angle);
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
             if (ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f") && rt_calibration) {
+                std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "calibration_v:" + std::to_string(calibration_v);
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
             if (ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f") && rt_calibration) {
+                std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "calibration_h:" + std::to_string(calibration_h);
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
@@ -386,11 +413,7 @@ int main(int, char**)
 
             // Sends the variables to be updated to the Arduino program via the Serial port.
             if (ImGui::Button("Update to Serial")) {
-                serial_buffer = "angle:" + std::to_string(angle) 
-                              + "calibration_v:" + std::to_string(calibration_v)
-                              + "calibration_h:" + std::to_string(calibration_h);
-                serial_port.write(serial_buffer);
-                std::cout << "Sent: " << serial_buffer << std::endl;
+                update_to_serial();
             }
 
             ImGui::Checkbox("Update angle in real time", &rt_angle);
@@ -404,21 +427,20 @@ int main(int, char**)
             ImGui::End();
         }
 
-
         // IMPLOT GRAPH
         static ScrollingBuffer angle_data, vertical_data, horizontal_data;
         static float t = 0;
         t += ImGui::GetIO().DeltaTime;
 
+        // Limits readings depending on the rate
         if (rt_graph) {
-            serial_buffer = "read:0";
-            serial_port.write(serial_buffer);
-            serial_port.readline(serial_result, 20, "\n");
-            std::cout << "Received: " << serial_result << std::endl;
-
-            reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
-            reading_h = std::stof(serial_result.substr(serial_result.find(':') + 1, serial_result.find('\n')));
-        }
+            if (time_since_last_reading > (1.0f / readings_per_second)) {
+                futures.push_back(std::async(std::launch::async, read_from_serial));
+                time_since_last_reading = 0.0f;
+            } else {
+                time_since_last_reading += ImGui::GetIO().DeltaTime;
+            }
+        } 
 
         angle_data.AddPoint(t, angle_rel);
         vertical_data.AddPoint(t, reading_v);
@@ -437,28 +459,35 @@ int main(int, char**)
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
             ImPlot::PlotLine("Angle of Attack", &angle_data.Data[0].x, &angle_data.Data[0].y, angle_data.Data.size(),  0, angle_data.Offset, 2*sizeof(float));
             ImPlot::PlotLine("Vertical Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(),  0, vertical_data.Offset, 2*sizeof(float));
-            ImPlot::PlotLine("Horizontal Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(), 0, vertical_data.Offset, 2*sizeof(float));
+            ImPlot::PlotLine("Horizontal Force", &horizontal_data.Data[0].x, &horizontal_data.Data[0].y, horizontal_data.Data.size(), 0, horizontal_data.Offset, 2*sizeof(float));
             ImPlot::EndPlot();
 
+            // RPS slider
+            ImGui::SliderFloat("Readings per Second", &readings_per_second, 1.0f, 10.0f);
+
             // Lists readings in plaintext
-            ImGui::InputFloat("Vertical Reading", &reading_v, 1.0f, 1.0f, "%.3f");
+            ImGui::Text("V: %f", reading_v);
             ImGui::SameLine();
-            ImGui::InputFloat("Horizontal Reading", &reading_h, 1.0f, 1.0f, "%.3f");
+            ImGui::Text("H: %f", reading_h);
+        
 
             ImGui::Checkbox("Enable readings", &rt_graph);
             if (ImGui::Button("Tare Scale")) {
-                serial_buffer = "tare:0";
+                std::lock_guard<std::mutex> lock(serial_buffer_mutex);
+                serial_buffer = "tare:";
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
             if (ImGui::Button("Tare Vertical Scale")) {
-                serial_buffer = "tare_v:0";
+                std::lock_guard<std::mutex> lock(serial_buffer_mutex);
+                serial_buffer = "tare_v:";
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
             ImGui::SameLine();
             if (ImGui::Button("Tare Horizontal Scale")) {
-                serial_buffer = "tare_h:0";
+                std::lock_guard<std::mutex> lock(serial_buffer_mutex);
+                serial_buffer = "tare_h:";
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
@@ -490,6 +519,12 @@ int main(int, char**)
 #endif
 
     // Cleanup
+
+    // cleans futures
+    for (auto& future : futures) {
+        future.get();
+    }
+
     // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
