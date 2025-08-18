@@ -25,12 +25,12 @@ Servo servo;
 // calibration vertical: 362, 382
 // calibration horizontal: 4, 6, 26.5
 
-float calibration_v = 362; // REPLACE WITH YOUR CALIBRATED VALUE 
-float calibration_h = 26.5; // REPLACE WITH YOUR CALIBRATED VALUE 
+static float calibration_v = 362; // REPLACE WITH YOUR CALIBRATED VALUE 
+static float calibration_h = 26.5; // REPLACE WITH YOUR CALIBRATED VALUE 
 
 void setup() {
   Serial.begin(115200); // Start serial communication for debugging
-  Serial.setTimeout(10); // Set a shorter timeout to avoid random 1s timeout 
+  Serial.setTimeout(5); // Set a shorter timeout to avoid random 1s timeout 
 
   // Servo connection
   servo.attach(SERVO_PIN);
@@ -42,59 +42,45 @@ void setup() {
 
   lc_v.set_scale(calibration_v);
   lc_h.set_scale(calibration_h);
+
+  lc_v.tare();
+  lc_h.tare();
 }
 
 void loop() {
   // Sends results
-  // float weight_v = lc_v.get_units(2); 
-  // float weight_h = lc_h.get_units(2); 
-
-  // Handles all the incoming input from the C++ program
   if (Serial.available() > 0) {
     String keyword = Serial.readStringUntil(':');
 
-    // Debugging the Serial input
-    // Serial.print("Reading in keyword of [");
-    // Serial.print(keyword);
-    // Serial.println("]");
-
     if (keyword == "angle") {
       int t_angle = Serial.parseInt();
-      // Serial.print("Changing the angle of attack from ");
-      // Serial.print(angle);
-      // Serial.print(" to ");
-      // Serial.print(t_angle);
-      // Serial.println(" degrees.");
       angle = t_angle;
       servo.write(angle);
     } else if (keyword == "calibration_v") { 
       float t_val = Serial.parseFloat();
-      // Serial.print("Changing the vertical calibration from ");
-      // Serial.print(calibration_v);
-      // Serial.print(" to ");
-      // Serial.print(t_val);
-      // Serial.println(".");
       calibration_v = t_val;
+      lc_v.set_scale(t_val);
     } else if (keyword == "calibration_h") { 
       float t_val = Serial.parseFloat();
-      // Serial.print("Changing the horizontal calibration from ");
-      // Serial.print(calibration_h);
-      // Serial.print(" to ");
-      // Serial.print(t_val);
-      // Serial.println(".");
       calibration_h = t_val;
+      lc_h.set_scale(t_val);
     } else if (keyword == "tare") {
       Serial.parseInt();
       lc_v.tare();
       lc_h.tare();
+    } else if (keyword == "tare_v") {
+      Serial.parseInt();
+      lc_v.tare();
+    } else if (keyword == "tare_h") {
+      Serial.parseInt();
+      lc_h.tare();
     } else if (keyword == "read") {
       Serial.parseInt();
-      // float weight_v = lc_v.get_units(2); 
-      // float weight_h = lc_h.get_units(2); 
+      weight_v = lc_v.get_units(1); 
+      weight_h = lc_h.get_units(1); 
       buffer = String(weight_v, 2) + ":" + String(weight_h, 2);
       Serial.println(buffer);
     } else {
-      // Serial.println("Unrecognized keyword... Clearing the buffer. Please check all incoming input.");
       Serial.readString();
     }
   }

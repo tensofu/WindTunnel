@@ -41,6 +41,7 @@ The messsage will be sent in strings of `{variable_name}:{int_value}` or `{varia
 1. ImGui
 2. SDL
 3. Serial
+4. ImPlot
 
 
 

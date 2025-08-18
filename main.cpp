@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <stdexcept>
+#include <chrono>
 
 #include "serial/serial.h" // serial library
 
@@ -26,17 +27,17 @@
 
 // CONSTANT VARIABLES
 // Angle Variables
-const int16_t MIN_ANGLE = -80;
-const int16_t MAX_ANGLE = 80;
+const int16_t MIN_ANGLE = -15;
+const int16_t MAX_ANGLE = 15;
 const int16_t BASE_ANGLE = 90;
 
 // Calibration Variables
-const float BASE_CALIBRATION_V = 362.0f;
+const float BASE_CALIBRATION_V = 714.0f;
 const float BASE_CALIBRATION_H = 26.5f;
 
 // Serial Variables
 const unsigned long BAUD = 115200;
-static std::string PORT = "/dev/cu.usbmodem11201"; // port for arduino
+static std::string PORT = "/dev/cu.usbmodem11401"; // port for arduino
 
 // OTHER STATIC VARIABLES
 static int16_t angle = BASE_ANGLE;
@@ -45,7 +46,7 @@ static float calibration_v = BASE_CALIBRATION_V;
 static float calibration_h = BASE_CALIBRATION_H;
 static bool rt_angle = true;
 static bool rt_graph = false;
-static bool rt_calibration = false;
+static bool rt_calibration = true;
 static bool serial_open = false;
 static std::string serial_buffer;
 static std::string serial_result;
@@ -378,7 +379,7 @@ int main(int, char**)
             }
 
             if (ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f") && rt_calibration) {
-                serial_buffer = "calibration_v:" + std::to_string(calibration_h);
+                serial_buffer = "calibration_h:" + std::to_string(calibration_h);
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
@@ -409,47 +410,58 @@ int main(int, char**)
         static float t = 0;
         t += ImGui::GetIO().DeltaTime;
 
+        if (rt_graph) {
+            serial_buffer = "read:0";
+            serial_port.write(serial_buffer);
+            serial_port.readline(serial_result, 20, "\n");
+            std::cout << "Received: " << serial_result << std::endl;
+
+            reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
+            reading_h = std::stof(serial_result.substr(serial_result.find(':') + 1, serial_result.find('\n')));
+        }
+
         angle_data.AddPoint(t, angle_rel);
         vertical_data.AddPoint(t, reading_v);
         horizontal_data.AddPoint(t, reading_h);
 
         static float history = 30.0f;
-        ImGui::SliderFloat("History", &history, 1, 30, "%.1f s");
 
         static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
 
         if (show_graph_window) {
+            // Reading from serial
             ImPlot::BeginPlot("Load Cell Forces", ImVec2(-1, 150));
             ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
             ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-            ImPlot::SetupAxisLimits(ImAxis_Y1, -100, 100);
+            ImPlot::SetupAxisLimits(ImAxis_Y1, -20, 20);
             ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 0.5f);
             ImPlot::PlotLine("Angle of Attack", &angle_data.Data[0].x, &angle_data.Data[0].y, angle_data.Data.size(),  0, angle_data.Offset, 2*sizeof(float));
             ImPlot::PlotLine("Vertical Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(),  0, vertical_data.Offset, 2*sizeof(float));
             ImPlot::PlotLine("Horizontal Force", &vertical_data.Data[0].x, &vertical_data.Data[0].y, vertical_data.Data.size(), 0, vertical_data.Offset, 2*sizeof(float));
+            ImPlot::EndPlot();
 
             // Lists readings in plaintext
-            ImGui::Text("V: ");
+            ImGui::InputFloat("Vertical Reading", &reading_v, 1.0f, 1.0f, "%.3f");
             ImGui::SameLine();
-            ImGui::Text("%f", reading_v);
-            ImGui::SameLine();
-            ImGui::Text("H: ");
-            ImGui::SameLine();
-            ImGui::Text("%f", reading_h);
+            ImGui::InputFloat("Horizontal Reading", &reading_h, 1.0f, 1.0f, "%.3f");
 
             ImGui::Checkbox("Enable readings", &rt_graph);
-            ImPlot::EndPlot();
-        }
-
-        // Reading from serial
-        if (rt_graph) {
-            serial_buffer = "read:" + std::to_string(0);
-            serial_port.write(serial_buffer);
-            serial_port.readline(serial_result, 20, "\n");
-            std::cout << "Received: " << serial_result;
-
-            reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
-            reading_h = std::stof(serial_result.substr(serial_result.find(':') + 1, serial_result.find('\n')));
+            if (ImGui::Button("Tare Scale")) {
+                serial_buffer = "tare:0";
+                serial_port.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
+            }
+            if (ImGui::Button("Tare Vertical Scale")) {
+                serial_buffer = "tare_v:0";
+                serial_port.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Tare Horizontal Scale")) {
+                serial_buffer = "tare_h:0";
+                serial_port.write(serial_buffer);
+                std::cout << "Sent: " << serial_buffer << std::endl;
+            }
         }
         
         // Rendering
