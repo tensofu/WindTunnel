@@ -103,10 +103,10 @@ void enumerate_ports(std::vector<std::string> devices) {
 }
 
 void read_from_serial () {
-    serial_buffer = "read:0";
+    serial_buffer = "read:";
     serial_port.write(serial_buffer);
-    serial_port.readline(serial_result, 20, "\n");
-    std::cout << "Received: " << serial_result << std::endl;
+    serial_result = serial_port.readline(100, "\n");
+    std::cout << "Received: " << serial_result;
 
     reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
     reading_h = std::stof(serial_result.substr(serial_result.find(':') + 1, serial_result.find('\n')));
@@ -398,10 +398,7 @@ int main(int, char**)
 
         if (rt_graph) {
             read_from_serial();
-        } else {
-            reading_v = 0.0f;
-            reading_h = 0.0f;
-        }
+        } 
 
         angle_data.AddPoint(t, angle_rel);
         vertical_data.AddPoint(t, reading_v);
@@ -430,18 +427,18 @@ int main(int, char**)
 
             ImGui::Checkbox("Enable readings", &rt_graph);
             if (ImGui::Button("Tare Scale")) {
-                serial_buffer = "tare:0";
+                serial_buffer = "tare:";
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
             if (ImGui::Button("Tare Vertical Scale")) {
-                serial_buffer = "tare_v:0";
+                serial_buffer = "tare_v:";
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
             ImGui::SameLine();
             if (ImGui::Button("Tare Horizontal Scale")) {
-                serial_buffer = "tare_h:0";
+                serial_buffer = "tare_h:";
                 serial_port.write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
