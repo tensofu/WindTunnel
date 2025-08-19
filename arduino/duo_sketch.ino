@@ -10,8 +10,8 @@ const int LOADCELL_DOUT_PIN_H = 4; // Horizontal HX711 DOUT pin connected to Ard
 const int LOADCELL_SCK_PIN_H = 5;  // Horizontal HX711 SCK pin connected to Arduino pin 5
 const int SERVO_PIN = 6;         // Servo pin is controlled to pin 6
 
-// MISC VARIABLES FOR SERVO ADJUSTMENTS -> starts at 90
-const int BASE_ANGLE = 90;
+// MISC VARIABLES FOR SERVO ADJUSTMENTS -> starts at whatever
+const int BASE_ANGLE = 85;
 int angle = BASE_ANGLE;
 
 // MISC VARIABLES FOR LOAD CELLS

@@ -30,9 +30,9 @@
 
 // CONSTANT VARIABLES
 // Angle Variables
-const int16_t MIN_ANGLE = -15;
-const int16_t MAX_ANGLE = 15;
-const int16_t BASE_ANGLE = 90;
+const int16_t MIN_ANGLE = -30;
+const int16_t MAX_ANGLE = 30;
+const int16_t BASE_ANGLE = 85;
 
 // Calibration Variables
 const float BASE_CALIBRATION_V = 714.0f;
@@ -303,7 +303,7 @@ int main(int, char**)
     bool show_main_window = true;
 
     if (!serial_open) {
-        show_main_window = true;
+        show_main_window = false;
     }
     
     // bool show_another_window = false;
@@ -378,12 +378,27 @@ int main(int, char**)
 
             if (!serial_open) {
                 ImGui::TextWrapped("If you are seeing this message, the serial port did not open correctly. "
-                                   "Please see if the desired port is available, or select the correct port using the dropdown above.");
+                                   "Please see if the desired port is available, or select the correct port using the dropdown above. "
+                                   "Once selected, press 'Start' to attempt the serial connection. If successful, the text will disappear.");
             }
 
             if (ImGui::Button("Start")) {
-                // TODO: sets the serial port and baud rate, then tries to reopen the port.
+                if (!serial_open) {
+                    try {
+                        serial_port = std::make_unique<serial::Serial>(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
+                        if (serial_port->isOpen()) {
+                            std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
+                            serial_open = true;
+                        } else {
+                            std::cout << "Serial port did not open. Here is a list of ports that you could choose from:" << std::endl;
+                        }
+                    } catch (const serial::IOException& e) {
+                        std::cerr << "Error: " << e.what()  << std::endl;
+                    }
+                }
             }
+
+            ImGui::Text("Current Port: %s", PORT.c_str());
 
             ImGui::BulletText("Remaining async operations: ");
             ImGui::SameLine();
