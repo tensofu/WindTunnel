@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <chrono>
 #include <future>
+#include <fstream>
+#include <memory>
 
 #include "serial/serial.h" // serial library
 
@@ -34,7 +36,7 @@ const int16_t BASE_ANGLE = 90;
 
 // Calibration Variables
 const float BASE_CALIBRATION_V = 714.0f;
-const float BASE_CALIBRATION_H = 26.5f;
+const float BASE_CALIBRATION_H = 116.0f;
 
 // Serial Variables
 const unsigned long BAUD = 115200;
@@ -54,11 +56,37 @@ static std::string serial_result;
 static std::string readings;
 static float reading_v = 0.0f;
 static float reading_h = 0.0f;
-static serial::Serial serial_port(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
 static std::mutex serial_buffer_mutex;
 static std::mutex serial_result_mutex;
 static float readings_per_second = 5.0f; 
 static std::vector<std::future<void>> reading_queue;
+static std::unique_ptr<serial::Serial> serial_port;
+
+// file stream stuff for saving/reading
+void save_config () {
+    std::ofstream stream{"config.txt"};
+    if (!stream) {
+        std::cerr << "Error: the config could not be opened or written to." << std::endl;
+        return;
+    }
+    stream << calibration_v << std::endl;
+    stream << calibration_h << std::endl;
+}
+
+void load_config () {
+    std::vector<std::string> results;
+    std::ifstream stream{"config.txt"};
+    if (!stream) {
+        std::cerr << "Error: the config could not be opened or read from." << std::endl;
+        return;
+    }
+    std::string line;
+    while (std::getline(stream, line)) {
+        results.push_back(line);
+    }
+    calibration_v = std::stof(results[0]);
+    calibration_h = std::stof(results[1]);
+}
 
 // utility structure for realtime plot (taken from implot_demo.cpp)
 struct ScrollingBuffer {
@@ -110,11 +138,11 @@ void read_from_serial () {
     {
         std::lock_guard<std::mutex> lock(serial_buffer_mutex);
         serial_buffer = "read:";
-        serial_port.write(serial_buffer);
+        serial_port->write(serial_buffer);
     }
    
     std::lock_guard<std::mutex> result_lock(serial_result_mutex);
-    serial_result = serial_port.readline(100, "\n");
+    serial_result = serial_port->readline(100, "\n");
     std::cout << "Received: " << serial_result;
 
     reading_v = std::stof(serial_result.substr(0, serial_result.find(':')));
@@ -127,7 +155,7 @@ void update_to_serial () {
     serial_buffer = "angle:" + std::to_string(angle) 
                   + "calibration_v:" + std::to_string(calibration_v)
                   + "calibration_h:" + std::to_string(calibration_h);
-    serial_port.write(serial_buffer);
+    serial_port->write(serial_buffer);
     std::cout << "Sent: " << serial_buffer << std::endl;
 }
 
@@ -142,7 +170,8 @@ int main(int, char**)
 
     // Attempts to open the serial port 
     try {
-        if (serial_port.isOpen()) {
+        serial_port = std::make_unique<serial::Serial>(PORT, BAUD, serial::Timeout::simpleTimeout(1000));
+        if (serial_port->isOpen()) {
             std::cout << "Serial port is open on port " + PORT + ", and listening on baud rate of " + std::to_string(BAUD) << std::endl;
             serial_open = true;
         } else {
@@ -151,6 +180,8 @@ int main(int, char**)
     } catch (const serial::IOException& e) {
         std::cerr << "Error: " << e.what()  << std::endl;
     }
+
+    load_config();
 
     // Setup SDL
     // [If using SDL_MAIN_USE_CALLBACKS: all code below until the main loop starts would likely be your SDL_AppInit() function]
@@ -272,7 +303,7 @@ int main(int, char**)
     bool show_main_window = true;
 
     if (!serial_open) {
-        show_main_window = false;
+        show_main_window = true;
     }
     
     // bool show_another_window = false;
@@ -373,21 +404,21 @@ int main(int, char**)
                 update_angle();
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "angle:" + std::to_string(angle);
-                serial_port.write(serial_buffer);
+                serial_port->write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
             if (ImGui::InputFloat("Vertical Calibration", &calibration_v, 1.0f, 1.0f, "%.3f") && rt_calibration) {
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "calibration_v:" + std::to_string(calibration_v);
-                serial_port.write(serial_buffer);
+                serial_port->write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
             if (ImGui::InputFloat("Horizontal Calibration", &calibration_h, 1.0f, 1.0f, "%.3f") && rt_calibration) {
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "calibration_h:" + std::to_string(calibration_h);
-                serial_port.write(serial_buffer);
+                serial_port->write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
 
@@ -401,7 +432,11 @@ int main(int, char**)
 
             // Saves all variables to a .txt config file
             if (ImGui::Button("Save")) {
-                // TODO: save a config or something
+                save_config();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Load")) {
+                load_config();
             }
 
             ImGui::End();
@@ -470,20 +505,20 @@ int main(int, char**)
             if (ImGui::Button("Tare Scale")) {
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "tare:";
-                serial_port.write(serial_buffer);
+                serial_port->write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
             if (ImGui::Button("Tare Vertical Scale")) {
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "tare_v:";
-                serial_port.write(serial_buffer);
+                serial_port->write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
             ImGui::SameLine();
             if (ImGui::Button("Tare Horizontal Scale")) {
                 std::lock_guard<std::mutex> lock(serial_buffer_mutex);
                 serial_buffer = "tare_h:";
-                serial_port.write(serial_buffer);
+                serial_port->write(serial_buffer);
                 std::cout << "Sent: " << serial_buffer << std::endl;
             }
         }

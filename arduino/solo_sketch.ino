@@ -1,3 +1,5 @@
+// This program utilizes Bogdan Necula's HX711 Arduino Library https://docs.arduino.cc/libraries/hx711-arduino-library/
+
 #include "HX711.h"
 #include "Servo.h"
 
